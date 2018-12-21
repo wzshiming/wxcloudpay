@@ -1,6 +1,7 @@
 package wxcloudpay
 
 import (
+	"crypto/rsa"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,6 +22,7 @@ var (
 type CloudPay struct {
 	cli       *requests.Request
 	authenKey []byte
+	priKey    *rsa.PrivateKey
 }
 
 func NewCloudPay(authenKey, signatureKey []byte) *CloudPay {
@@ -28,10 +30,18 @@ func NewCloudPay(authenKey, signatureKey []byte) *CloudPay {
 }
 
 func NewCloudPayWithURL(baseURL string, authenKey, signatureKey []byte) *CloudPay {
-	return &CloudPay{
+	c := &CloudPay{
 		cli:       client.NewRequest().SetURLByStr(baseURL),
 		authenKey: authenKey,
 	}
+	if len(signatureKey) != 0 {
+		pri, err := authen.GetPriKey(signatureKey)
+		if err != nil {
+			fmt.Printf("Warning: signature %s", err.Error())
+		}
+		c.priKey = pri
+	}
+	return c
 }
 
 func (c *CloudPay) requests(url string, req, resp interface{}, auth bool) error {
@@ -41,16 +51,27 @@ func (c *CloudPay) requests(url string, req, resp interface{}, auth bool) error 
 	}
 	requestsContent := *(*string)(unsafe.Pointer(&ctx))
 
-	authenInfo := &proto.AuthenInfo{
-		A: &proto.Authen{
-			AuthenCode: authen.HmacSha256(ctx, c.authenKey),
-			AuthenType: proto.AuthenTypeHmacSha256,
-		},
-	}
-
 	request := &proto.Sdk2CloudPayRequest{
 		RequestContent: requestsContent,
-		AuthenInfo:     authenInfo,
+	}
+	if url != proto.RefundURL {
+		request.AuthenInfo = &proto.AuthenInfo{
+			A: &proto.Authen{
+				AuthenCode: authen.HmacSha256(ctx, c.authenKey),
+				AuthenType: proto.AuthenTypeHmacSha256,
+			},
+		}
+	} else {
+		code, err := authen.SignRSASSha256(ctx, c.priKey)
+		if err != nil {
+			return err
+		}
+		request.AuthenInfo = &proto.AuthenInfo{
+			S: &proto.Signature{
+				Sign:     code,
+				SignType: proto.SignTypeRsassaPss2048Sha256,
+			},
+		}
 	}
 
 	body, err := c.cli.Clone().
