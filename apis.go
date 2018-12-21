@@ -12,17 +12,16 @@ import (
 	"github.com/wzshiming/wxcloudpay/proto"
 )
 
-var client = requests.NewClient().
-	SetLogLevel(requests.LogMessageAll)
-
 var (
 	ErrResponseValidation = errors.New("cloudpay: Response validation failed")
 )
 
 type CloudPay struct {
+	_cli      *requests.Client
 	cli       *requests.Request
 	authenKey []byte
 	priKey    *rsa.PrivateKey
+	debug     bool
 }
 
 func NewCloudPay(authenKey, signatureKey []byte) *CloudPay {
@@ -30,7 +29,10 @@ func NewCloudPay(authenKey, signatureKey []byte) *CloudPay {
 }
 
 func NewCloudPayWithURL(baseURL string, authenKey, signatureKey []byte) *CloudPay {
+
+	client := requests.NewClient()
 	c := &CloudPay{
+		_cli:      client,
 		cli:       client.NewRequest().SetURLByStr(baseURL),
 		authenKey: authenKey,
 	}
@@ -41,7 +43,16 @@ func NewCloudPayWithURL(baseURL string, authenKey, signatureKey []byte) *CloudPa
 		}
 		c.priKey = pri
 	}
+	c.Debug(true)
 	return c
+}
+
+func (c *CloudPay) Debug(b bool) {
+	if b {
+		c._cli.SetLogLevel(requests.LogMessageAll)
+	} else {
+		c._cli.SetLogLevel(requests.LogIgnore)
+	}
 }
 
 func (c *CloudPay) requests(url string, req, resp interface{}, auth bool) error {
